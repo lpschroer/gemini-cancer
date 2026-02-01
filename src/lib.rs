@@ -15,25 +15,20 @@
 //! ### Basic Request
 //!
 //! ```rust,ignore
-//! use gemini::{GeminiConfig, GenerateContentRequest, Content, Part, Role};
+//! use gemini::{GeminiConfig, GenerateContentRequest, Content, Part, Role, JsonString};
 //!
 //! // Create configuration from environment
 //! let config = GeminiConfig::from_env()?;
 //!
-//! // Build a request
+//! // Build a request using the builder pattern
 //! let request = GenerateContentRequest {
 //!     contents: vec![Content {
 //!         role: Some(Role::User),
-//!         parts: vec![Part {
-//!             text: Some("Tell me a story".to_string()),
-//!             inline_data: None,
-//!             function_call: None,
-//!             function_response: None,
-//!             file_data: None,
-//!             executable_code: None,
-//!             code_execution_result: None,
-//!             video_metadata: None,
-//!         }],
+//!         parts: vec![
+//!             Part::builder()
+//!                 .text(JsonString::new("Tell me a story".to_string()))
+//!                 .build(),
+//!         ],
 //!     }],
 //!     generation_config: None,
 //!     system_instruction: None,
