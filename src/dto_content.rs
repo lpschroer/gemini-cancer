@@ -163,6 +163,114 @@ pub struct Part<T = String> {
     pub video_metadata: Option<VideoMetadata>,
 }
 
+/// Builder for constructing `Part<T>` instances
+///
+/// Use this builder when creating `Part` instances with multiple fields to avoid
+/// verbose struct initialization syntax.
+#[derive(Debug)]
+pub struct PartBuilder<T = String> {
+    text: Option<JsonString<T>>,
+    inline_data: Option<Blob>,
+    function_call: Option<FunctionCall>,
+    function_response: Option<FunctionResponse>,
+    file_data: Option<FileData>,
+    executable_code: Option<ExecutableCode>,
+    code_execution_result: Option<CodeExecutionResult>,
+    video_metadata: Option<VideoMetadata>,
+}
+
+impl<T> Default for PartBuilder<T> {
+    fn default() -> Self {
+        Self {
+            text: None,
+            inline_data: None,
+            function_call: None,
+            function_response: None,
+            file_data: None,
+            executable_code: None,
+            code_execution_result: None,
+            video_metadata: None,
+        }
+    }
+}
+
+impl<T> PartBuilder<T> {
+    /// Creates a new builder with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the text content
+    #[must_use]
+    pub fn text(mut self, text: JsonString<T>) -> Self {
+        self.text = Some(text);
+        self
+    }
+
+    /// Sets the inline data (media bytes)
+    #[must_use]
+    pub fn inline_data(mut self, inline_data: Blob) -> Self {
+        self.inline_data = Some(inline_data);
+        self
+    }
+
+    /// Sets the function call
+    #[must_use]
+    pub fn function_call(mut self, function_call: FunctionCall) -> Self {
+        self.function_call = Some(function_call);
+        self
+    }
+
+    /// Sets the function response
+    #[must_use]
+    pub fn function_response(mut self, function_response: FunctionResponse) -> Self {
+        self.function_response = Some(function_response);
+        self
+    }
+
+    /// Sets the file data (URI based data)
+    #[must_use]
+    pub fn file_data(mut self, file_data: FileData) -> Self {
+        self.file_data = Some(file_data);
+        self
+    }
+
+    /// Sets the executable code
+    #[must_use]
+    pub fn executable_code(mut self, executable_code: ExecutableCode) -> Self {
+        self.executable_code = Some(executable_code);
+        self
+    }
+
+    /// Sets the code execution result
+    #[must_use]
+    pub fn code_execution_result(mut self, code_execution_result: CodeExecutionResult) -> Self {
+        self.code_execution_result = Some(code_execution_result);
+        self
+    }
+
+    /// Sets the video metadata
+    #[must_use]
+    pub fn video_metadata(mut self, video_metadata: VideoMetadata) -> Self {
+        self.video_metadata = Some(video_metadata);
+        self
+    }
+
+    /// Constructs the `Part<T>` instance from the builder
+    pub fn build(self) -> Part<T> {
+        Part {
+            text: self.text,
+            inline_data: self.inline_data,
+            function_call: self.function_call,
+            function_response: self.function_response,
+            file_data: self.file_data,
+            executable_code: self.executable_code,
+            code_execution_result: self.code_execution_result,
+            video_metadata: self.video_metadata,
+        }
+    }
+}
+
 /// Raw media bytes
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Blob {
@@ -243,6 +351,11 @@ pub struct VideoMetadata {
 }
 
 impl<T> Part<T> {
+    /// Creates a new builder for constructing a `Part` instance
+    pub fn builder() -> PartBuilder<T> {
+        PartBuilder::new()
+    }
+
     /// Returns true if this part has text content
     pub fn has_text(&self) -> bool {
         self.text.is_some()
@@ -288,16 +401,9 @@ mod tests {
 
     #[test]
     fn test_part_text_helpers() {
-        let part = Part {
-            text: Some(JsonString::new("Hello".to_string())),
-            inline_data: None,
-            function_call: None,
-            function_response: None,
-            file_data: None,
-            executable_code: None,
-            code_execution_result: None,
-            video_metadata: None,
-        };
+        let part = Part::builder()
+            .text(JsonString::new("Hello".to_string()))
+            .build();
 
         assert!(part.has_text());
         assert_eq!(part.text(), Some(&"Hello".to_string()));
@@ -306,19 +412,12 @@ mod tests {
 
     #[test]
     fn test_part_text_mut() {
-        let mut part = Part {
-            text: Some(JsonString::new(TestSchema {
+        let mut part = Part::builder()
+            .text(JsonString::new(TestSchema {
                 name: "Alice".to_string(),
                 age: 30,
-            })),
-            inline_data: None,
-            function_call: None,
-            function_response: None,
-            file_data: None,
-            executable_code: None,
-            code_execution_result: None,
-            video_metadata: None,
-        };
+            }))
+            .build();
 
         if let Some(schema) = part.text_mut() {
             schema.age = 31;
@@ -329,27 +428,11 @@ mod tests {
 
     #[test]
     fn test_part_has_text() {
-        let part_with_text: Part<String> = Part {
-            text: Some(JsonString::new("Hello".to_string())),
-            inline_data: None,
-            function_call: None,
-            function_response: None,
-            file_data: None,
-            executable_code: None,
-            code_execution_result: None,
-            video_metadata: None,
-        };
+        let part_with_text: Part<String> = Part::builder()
+            .text(JsonString::new("Hello".to_string()))
+            .build();
 
-        let part_without_text: Part<String> = Part {
-            text: None,
-            inline_data: None,
-            function_call: None,
-            function_response: None,
-            file_data: None,
-            executable_code: None,
-            code_execution_result: None,
-            video_metadata: None,
-        };
+        let part_without_text: Part<String> = Part::builder().build();
 
         assert!(part_with_text.has_text());
         assert!(!part_without_text.has_text());
@@ -378,16 +461,11 @@ mod tests {
     fn test_content_helpers() {
         let content = Content {
             role: Some(Role::Model),
-            parts: vec![Part {
-                text: Some(JsonString::new("Hello".to_string())),
-                inline_data: None,
-                function_call: None,
-                function_response: None,
-                file_data: None,
-                executable_code: None,
-                code_execution_result: None,
-                video_metadata: None,
-            }],
+            parts: vec![
+                Part::builder()
+                    .text(JsonString::new("Hello".to_string()))
+                    .build(),
+            ],
         };
 
         assert!(content.first_part().is_some());
@@ -522,5 +600,69 @@ mod tests {
 
         let deserialized: JsonString<String> = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized.into_inner(), original);
+    }
+
+    #[test]
+    fn test_part_builder_basic() {
+        let part = Part::builder()
+            .text(JsonString::new("Hello".to_string()))
+            .build();
+
+        assert!(part.has_text());
+        assert_eq!(part.text(), Some(&"Hello".to_string()));
+        assert!(part.inline_data.is_none());
+    }
+
+    #[test]
+    fn test_part_builder_multiple_fields() {
+        let blob = Blob {
+            mime_type: MimeType::ImagePng,
+            data: "base64data".to_string(),
+        };
+
+        let part = Part::builder()
+            .text(JsonString::new("Image description".to_string()))
+            .inline_data(blob)
+            .build();
+
+        assert!(part.has_text());
+        assert!(part.inline_data.is_some());
+        assert_eq!(part.inline_data.unwrap().data, "base64data");
+    }
+
+    #[test]
+    fn test_part_builder_function_call() {
+        let function_call = FunctionCall {
+            name: "test_function".to_string(),
+            args: Some(serde_json::json!({"key": "value"})),
+        };
+
+        let part: Part<String> = Part::builder().function_call(function_call).build();
+
+        assert!(part.function_call.is_some());
+        assert_eq!(part.function_call.unwrap().name, "test_function");
+    }
+
+    #[test]
+    fn test_part_builder_empty() {
+        let part: Part<String> = Part::builder().build();
+
+        assert!(!part.has_text());
+        assert!(part.inline_data.is_none());
+        assert!(part.function_call.is_none());
+    }
+
+    #[test]
+    fn test_part_builder_with_typed_text() {
+        let part = Part::builder()
+            .text(JsonString::new(TestSchema {
+                name: "Bob".to_string(),
+                age: 25,
+            }))
+            .build();
+
+        assert!(part.has_text());
+        assert_eq!(part.text().unwrap().name, "Bob");
+        assert_eq!(part.text().unwrap().age, 25);
     }
 }

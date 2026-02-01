@@ -131,16 +131,11 @@ mod tests {
             candidates: vec![Candidate {
                 content: Content {
                     role: Some(Role::Model),
-                    parts: vec![Part {
-                        text: Some(JsonString::new("Hello".to_string())),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new("Hello".to_string()))
+                            .build(),
+                    ],
                 },
                 finish_reason: None,
                 safety_ratings: vec![],

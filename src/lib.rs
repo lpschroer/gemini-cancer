@@ -88,7 +88,7 @@ pub use client::GeminiV1Beta;
 pub use config::GeminiConfig;
 pub use dto_content::{
     Blob, CodeExecutionResult, Content, ExecutableCode, FileData, FunctionCall, FunctionResponse,
-    JsonString, Part, Role, VideoMetadata,
+    JsonString, Part, PartBuilder, Role, VideoMetadata,
 };
 pub use dto_request::{
     GenerateContentRequest, GenerationConfig, GenerationConfigBuilder, MimeType, ResponseMimeType,

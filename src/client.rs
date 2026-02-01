@@ -146,16 +146,11 @@ mod tests {
         // Test that we can create and serialize a request
         let request: GenerateContentRequest<String> = GenerateContentRequest {
             contents: vec![Content {
-                parts: vec![Part {
-                    text: Some(JsonString::new("Hello, world!".to_string())),
-                    inline_data: None,
-                    function_call: None,
-                    function_response: None,
-                    file_data: None,
-                    executable_code: None,
-                    code_execution_result: None,
-                    video_metadata: None,
-                }],
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Hello, world!".to_string()))
+                        .build(),
+                ],
                 role: None,
             }],
             generation_config: None,
@@ -193,16 +188,11 @@ mod tests {
 
             let request: GenerateContentRequest<Character> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new("Create a character".to_string())),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new("Create a character".to_string()))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: Some(config),
@@ -271,16 +261,11 @@ mod tests {
 
             let request: GenerateContentRequest<Item> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new("Create an item".to_string())),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new("Create an item".to_string()))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: Some(config),
@@ -328,6 +313,7 @@ mod tests {
     #[cfg(test)]
     mod integration_tests {
         use super::*;
+        use crate::GenerationConfigBuilder;
 
         #[tokio::test]
         #[ignore]
@@ -337,16 +323,11 @@ mod tests {
 
             let request: GenerateContentRequest<String> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new("Say hello in one word".to_string())),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new("Say hello in one word".to_string()))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: None,
@@ -388,16 +369,11 @@ mod tests {
 
             let request: GenerateContentRequest<Greeting> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new("Create a greeting in English".to_string())),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new("Create a greeting in English".to_string()))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: Some(config),
@@ -444,18 +420,13 @@ mod tests {
 
             let request: GenerateContentRequest<Animal> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new(
-                            "Create an animal with name, species, and age".to_string(),
-                        )),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new(
+                                "Create an animal with name, species, and age".to_string(),
+                            ))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: Some(config),
@@ -513,20 +484,15 @@ mod tests {
 
             let request: GenerateContentRequest<Character> = GenerateContentRequest {
                 contents: vec![Content {
-                    parts: vec![Part {
-                        text: Some(JsonString::new(
-                            "Create a fantasy RPG character with name, age, class, \
-                             a list of 3 skills, and stats (strength, intelligence, charisma)"
-                                .to_string(),
-                        )),
-                        inline_data: None,
-                        function_call: None,
-                        function_response: None,
-                        file_data: None,
-                        executable_code: None,
-                        code_execution_result: None,
-                        video_metadata: None,
-                    }],
+                    parts: vec![
+                        Part::builder()
+                            .text(JsonString::new(
+                                "Create a fantasy RPG character with name, age, class, \
+                                 a list of 3 skills, and stats (strength, intelligence, charisma)"
+                                    .to_string(),
+                            ))
+                            .build(),
+                    ],
                     role: None,
                 }],
                 generation_config: Some(config),
