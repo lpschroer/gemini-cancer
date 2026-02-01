@@ -193,19 +193,129 @@ pub enum MimeType {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GenerateContentRequest<T = String> {
     /// The content of the current conversation with the model
-    pub contents: Vec<Content>,
+    contents: Vec<Content>,
 
     /// Optional configuration options for model generation and outputs
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub generation_config: Option<GenerationConfig<T>>,
+    generation_config: Option<GenerationConfig<T>>,
 
     /// Optional system instruction for the model
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system_instruction: Option<Content>,
+    system_instruction: Option<Content>,
 
     /// Optional safety settings
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub safety_settings: Option<Vec<SafetySetting>>,
+    safety_settings: Option<Vec<SafetySetting>>,
+}
+
+impl<T> GenerateContentRequest<T> {
+    /// Creates a new builder for constructing a `GenerateContentRequest` instance
+    pub fn builder() -> GenerateContentRequestBuilder<T> {
+        GenerateContentRequestBuilder::new()
+    }
+
+    /// Get a reference to the contents
+    pub fn contents(&self) -> &[Content] {
+        &self.contents
+    }
+
+    /// Get a reference to the generation config
+    pub fn generation_config(&self) -> Option<&GenerationConfig<T>> {
+        self.generation_config.as_ref()
+    }
+
+    /// Get a reference to the system instruction
+    pub fn system_instruction(&self) -> Option<&Content> {
+        self.system_instruction.as_ref()
+    }
+
+    /// Get a reference to the safety settings
+    pub fn safety_settings(&self) -> Option<&[SafetySetting]> {
+        self.safety_settings.as_deref()
+    }
+}
+
+/// Builder for constructing `GenerateContentRequest<T>` instances
+///
+/// Use this builder to create requests with multiple optional fields in a fluent manner.
+#[derive(Debug)]
+pub struct GenerateContentRequestBuilder<T = String> {
+    contents: Vec<Content>,
+    generation_config: Option<GenerationConfig<T>>,
+    system_instruction: Option<Content>,
+    safety_settings: Option<Vec<SafetySetting>>,
+}
+
+impl<T> Default for GenerateContentRequestBuilder<T> {
+    fn default() -> Self {
+        Self {
+            contents: Vec::new(),
+            generation_config: None,
+            system_instruction: None,
+            safety_settings: None,
+        }
+    }
+}
+
+impl<T> GenerateContentRequestBuilder<T> {
+    /// Creates a new builder with default values
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets the contents for the conversation
+    #[must_use]
+    pub fn contents(mut self, contents: Vec<Content>) -> Self {
+        self.contents = contents;
+        self
+    }
+
+    /// Adds a single content item to the conversation
+    #[must_use]
+    pub fn add_content(mut self, content: Content) -> Self {
+        self.contents.push(content);
+        self
+    }
+
+    /// Sets the generation configuration
+    #[must_use]
+    pub fn generation_config(mut self, config: GenerationConfig<T>) -> Self {
+        self.generation_config = Some(config);
+        self
+    }
+
+    /// Sets the system instruction
+    #[must_use]
+    pub fn system_instruction(mut self, instruction: Content) -> Self {
+        self.system_instruction = Some(instruction);
+        self
+    }
+
+    /// Sets the safety settings
+    #[must_use]
+    pub fn safety_settings(mut self, settings: Vec<SafetySetting>) -> Self {
+        self.safety_settings = Some(settings);
+        self
+    }
+
+    /// Adds a single safety setting
+    #[must_use]
+    pub fn add_safety_setting(mut self, setting: SafetySetting) -> Self {
+        self.safety_settings
+            .get_or_insert_with(Vec::new)
+            .push(setting);
+        self
+    }
+
+    /// Constructs the `GenerateContentRequest<T>` instance from the builder
+    pub fn build(self) -> GenerateContentRequest<T> {
+        GenerateContentRequest {
+            contents: self.contents,
+            generation_config: self.generation_config,
+            system_instruction: self.system_instruction,
+            safety_settings: self.safety_settings,
+        }
+    }
 }
 
 /// Configuration options for model generation
@@ -1176,5 +1286,186 @@ mod tests {
         let error_msg = error.to_string();
         assert!(error_msg.contains("response schema must be provided"));
         assert!(error_msg.contains("typed responses"));
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_basic() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Hello".to_string()))
+                        .build(),
+                ],
+            })
+            .build();
+
+        assert_eq!(request.contents().len(), 1);
+        assert!(request.generation_config().is_none());
+        assert!(request.system_instruction().is_none());
+        assert!(request.safety_settings().is_none());
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_with_config() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let config = GenerationConfig::builder()
+            .temperature(0.8)
+            .build()
+            .unwrap();
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Test".to_string()))
+                        .build(),
+                ],
+            })
+            .generation_config(config)
+            .build();
+
+        assert!(request.generation_config().is_some());
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_multiple_contents() {
+        use crate::dto_content::{Content, JsonString, Part, Role};
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: Some(Role::User),
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("First message".to_string()))
+                        .build(),
+                ],
+            })
+            .add_content(Content {
+                role: Some(Role::Model),
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Response".to_string()))
+                        .build(),
+                ],
+            })
+            .build();
+
+        assert_eq!(request.contents().len(), 2);
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_with_safety_settings() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let setting = SafetySetting {
+            category: "HARM_CATEGORY_DANGEROUS".to_string(),
+            threshold: "BLOCK_MEDIUM_AND_ABOVE".to_string(),
+        };
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Test".to_string()))
+                        .build(),
+                ],
+            })
+            .add_safety_setting(setting)
+            .build();
+
+        assert!(request.safety_settings().is_some());
+        assert_eq!(request.safety_settings().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_with_system_instruction() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let system_instruction = Content {
+            role: None,
+            parts: vec![
+                Part::builder()
+                    .text(JsonString::new("You are a helpful assistant".to_string()))
+                    .build(),
+            ],
+        };
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Hello".to_string()))
+                        .build(),
+                ],
+            })
+            .system_instruction(system_instruction)
+            .build();
+
+        assert!(request.system_instruction().is_some());
+    }
+
+    #[test]
+    fn test_generate_content_request_builder_contents_vec() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let contents = vec![
+            Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Message 1".to_string()))
+                        .build(),
+                ],
+            },
+            Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Message 2".to_string()))
+                        .build(),
+                ],
+            },
+        ];
+
+        let request: GenerateContentRequest<String> =
+            GenerateContentRequest::builder().contents(contents).build();
+
+        assert_eq!(request.contents().len(), 2);
+    }
+
+    #[test]
+    fn test_generate_content_request_getters() {
+        use crate::dto_content::{Content, JsonString, Part};
+
+        let config = GenerationConfig::builder()
+            .temperature(0.5)
+            .build()
+            .unwrap();
+
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
+                role: None,
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Test".to_string()))
+                        .build(),
+                ],
+            })
+            .generation_config(config)
+            .build();
+
+        // Test all getters
+        assert_eq!(request.contents().len(), 1);
+        assert!(request.generation_config().is_some());
+        assert!(request.system_instruction().is_none());
+        assert!(request.safety_settings().is_none());
     }
 }

@@ -21,19 +21,16 @@
 //! let config = GeminiConfig::from_env()?;
 //!
 //! // Build a request using the builder pattern
-//! let request = GenerateContentRequest {
-//!     contents: vec![Content {
+//! let request = GenerateContentRequest::builder()
+//!     .add_content(Content {
 //!         role: Some(Role::User),
 //!         parts: vec![
 //!             Part::builder()
 //!                 .text(JsonString::new("Tell me a story".to_string()))
 //!                 .build(),
 //!         ],
-//!     }],
-//!     generation_config: None,
-//!     system_instruction: None,
-//!     safety_settings: None,
-//! };
+//!     })
+//!     .build();
 //! ```
 //!
 //! ### Parsing Structured JSON Responses
@@ -50,15 +47,22 @@
 //!     role: String,
 //! }
 //!
-//! // Create typed request with auto-derived schema
-//! let request: GenerateContentRequest<Character> = GenerateContentRequest {
-//!     contents: vec![/* ... */],
-//!     generation_config: Some(GenerationConfig::builder()
-//!         .response_json_schema::<Character>()
-//!         .build()?),
-//!     system_instruction: None,
-//!     safety_settings: None,
-//! };
+//! // Create typed request with auto-derived schema using builder pattern
+//! let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
+//!     .add_content(Content {
+//!         role: Some(Role::User),
+//!         parts: vec![
+//!             Part::builder()
+//!                 .text(JsonString::new("Create a character".to_string()))
+//!                 .build(),
+//!         ],
+//!     })
+//!     .generation_config(
+//!         GenerationConfig::builder()
+//!             .response_json_schema::<Character>()
+//!             .build()?
+//!     )
+//!     .build();
 //!
 //! // Response is automatically typed as Character!
 //! let response: GenerateContentResponse<Character> = api.generate_content(request)?;
@@ -86,7 +90,7 @@ pub use dto_content::{
     JsonString, Part, PartBuilder, Role, VideoMetadata,
 };
 pub use dto_request::{
-    GenerateContentRequest, GenerationConfig, GenerationConfigBuilder, MimeType, ResponseMimeType,
-    SafetyRating, SafetySetting,
+    GenerateContentRequest, GenerateContentRequestBuilder, GenerationConfig,
+    GenerationConfigBuilder, MimeType, ResponseMimeType, SafetyRating, SafetySetting,
 };
 pub use dto_response::{Candidate, GenerateContentResponse, PromptFeedback, UsageMetadata};

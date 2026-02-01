@@ -144,19 +144,16 @@ mod tests {
     #[tokio::test]
     async fn test_generate_content_request_serialization() {
         // Test that we can create and serialize a request
-        let request: GenerateContentRequest<String> = GenerateContentRequest {
-            contents: vec![Content {
+        let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+            .add_content(Content {
                 parts: vec![
                     Part::builder()
                         .text(JsonString::new("Hello, world!".to_string()))
                         .build(),
                 ],
                 role: None,
-            }],
-            generation_config: None,
-            system_instruction: None,
-            safety_settings: None,
-        };
+            })
+            .build();
 
         let json = serde_json::to_string(&request).unwrap();
         assert!(json.contains("Hello, world!"));
@@ -186,19 +183,17 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let request: GenerateContentRequest<Character> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new("Create a character".to_string()))
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: Some(config),
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .generation_config(config)
+                .build();
 
             // Verify serialization works
             let json = serde_json::to_string(&request).unwrap();
@@ -259,19 +254,17 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let request: GenerateContentRequest<Item> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<Item> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new("Create an item".to_string()))
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: Some(config),
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .generation_config(config)
+                .build();
 
             // Verify serialization works
             let json = serde_json::to_string(&request).unwrap();
@@ -321,19 +314,16 @@ mod tests {
             // This test requires GEMINI_API_KEY environment variable
             let client = GeminiV1Beta::from_env().expect("Failed to create client from env");
 
-            let request: GenerateContentRequest<String> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new("Say hello in one word".to_string()))
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: None,
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .build();
 
             let response = client
                 .generate_content(request)
@@ -367,19 +357,17 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let request: GenerateContentRequest<Greeting> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<Greeting> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new("Create a greeting in English".to_string()))
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: Some(config),
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .generation_config(config)
+                .build();
 
             let response = client
                 .generate_content(request)
@@ -418,8 +406,8 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let request: GenerateContentRequest<Animal> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<Animal> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new(
@@ -428,11 +416,9 @@ mod tests {
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: Some(config),
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .generation_config(config)
+                .build();
 
             let response = client
                 .generate_content(request)
@@ -482,8 +468,8 @@ mod tests {
                 .build()
                 .unwrap();
 
-            let request: GenerateContentRequest<Character> = GenerateContentRequest {
-                contents: vec![Content {
+            let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
+                .add_content(Content {
                     parts: vec![
                         Part::builder()
                             .text(JsonString::new(
@@ -494,11 +480,9 @@ mod tests {
                             .build(),
                     ],
                     role: None,
-                }],
-                generation_config: Some(config),
-                system_instruction: None,
-                safety_settings: None,
-            };
+                })
+                .generation_config(config)
+                .build();
 
             let response = client
                 .generate_content(request)
