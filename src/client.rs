@@ -306,6 +306,7 @@ mod tests {
     #[cfg(test)]
     mod integration_tests {
         use super::*;
+        #[allow(unused_imports)] // Used in #[ignore] integration tests
         use crate::GenerationConfigBuilder;
 
         #[tokio::test]
