@@ -1,5 +1,6 @@
 > [!CAUTION]
-> This project is the result of late evening tinkering. Consume with caution!
+> This project is the result of late evening tinkering. 
+> I hope it fuels your own nocturnal coding, but consume with caution!
 
 # Gemini API Client
 
