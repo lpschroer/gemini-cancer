@@ -231,30 +231,161 @@ let config = GenerationConfig::<MyType2>::builder()
     .unwrap();
 ```
 
-## API Trait
+## Streaming API
 
-The crate provides a `GeminiApi` trait for implementing custom clients:
+The client supports streaming responses for real-time content generation:
+
+```rust
+use gemini::{GeminiStreamingApi, GenerateContentRequest, Content, Part, JsonString};
+use futures::StreamExt;
+
+let client = GeminiV1Beta::from_env()?;
+
+let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
+    .add_content(Content {
+        parts: vec![
+            Part::builder()
+                .text(JsonString::new("Write a short story".to_string()))
+                .build(),
+        ],
+        role: None,
+    })
+    .build();
+
+// Get a streaming async stream
+let mut stream = client.stream_generate_content(request).await?;
+
+// Process chunks as they arrive in real-time
+while let Some(result) = stream.next().await {
+    match result {
+        Ok(response) => {
+            if let Some(text) = response.first_text() {
+                print!("{}", text);
+            }
+        }
+        Err(e) => eprintln!("Error: {}", e),
+    }
+}
+```
+
+### Streaming with Typed Responses
+
+Streaming also works with typed responses, though intermediate chunks may contain incomplete JSON:
+
+```rust
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use futures::StreamExt;
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+struct Story {
+    title: String,
+    genre: String,
+    summary: String,
+}
+
+let config = GenerationConfigBuilder::<String>::new()
+    .response_json_schema::<Story>()
+    .build()
+    .unwrap();
+
+let request: GenerateContentRequest<Story> = GenerateContentRequest::builder()
+    .add_content(Content {
+        parts: vec![
+            Part::builder()
+                .text(JsonString::new("Create a story idea".to_string()))
+                .build(),
+        ],
+        role: None,
+    })
+    .generation_config(config)
+    .build();
+
+let mut stream = client.stream_generate_content(request).await?;
+
+let mut last_complete_story: Option<Story> = None;
+while let Some(result) = stream.next().await {
+    match result {
+        Ok(response) => {
+            if let Some(story) = response.first_text() {
+                last_complete_story = Some(story.clone());
+                println!("Received: {:?}", story);
+            }
+        }
+        Err(e) => {
+            // Intermediate chunks may have incomplete JSON
+            println!("Partial chunk (expected): {}", e);
+        }
+    }
+}
+
+// The final chunk should have the complete typed object
+if let Some(story) = last_complete_story {
+    println!("Final story: {}", story.title);
+}
+```
+
+### Parse Incomplete JSON
+
+The streaming API includes a `parse_incomplete` method that uses the `deser-incomplete` crate to handle partial JSON:
+
+```rust
+use gemini::GeminiStreamingApi;
+
+// This is handled automatically in the stream, but you can use it directly:
+let raw_json = r#"{"candidates": [{"content": {"parts": [{"text": "Hello"}]}}]}"#;
+let response = GeminiV1Beta::parse_incomplete::<String>(raw_json.to_string())?;
+```
+
+## API Traits
+
+The crate provides two traits for implementing custom clients:
+
+### GeminiApi
+
+For non-streaming content generation:
 
 ```rust
 use gemini::{GeminiApi, GenerateContentRequest, GenerateContentResponse};
 use std::error::Error;
 
+#[async_trait::async_trait]
 pub trait GeminiApi {
-    fn generate_content<T>(
+    async fn generate_content<T>(
         &self,
         request: GenerateContentRequest<T>,
     ) -> Result<GenerateContentResponse<T>, Box<dyn Error>>
     where
-        T: serde::de::DeserializeOwned + serde::Serialize + 'static;
-
-    fn stream_generate_content<T>(
-        &self,
-        request: GenerateContentRequest<T>,
-    ) -> Result<StreamingResponseIterator<T>, Box<dyn Error>>
-    where
-        T: serde::de::DeserializeOwned + serde::Serialize + 'static;
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static;
 }
 ```
+
+### GeminiStreamingApi
+
+For streaming content generation (returns async Stream):
+
+```rust
+use gemini::{GeminiStreamingApi, GenerateContentRequest, StreamingResponseStream};
+use std::error::Error;
+
+#[async_trait::async_trait]
+pub trait GeminiStreamingApi {
+    async fn stream_generate_content<T>(
+        &self,
+        request: GenerateContentRequest<T>,
+    ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+    where
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static;
+
+    fn parse_incomplete<T>(
+        raw: String,
+    ) -> Result<GenerateContentResponse<T>, deser_incomplete::Error<serde_json::Error>>
+    where
+        T: serde::de::DeserializeOwned + 'static;
+}
+```
+
+**Note**: `StreamingResponseStream<T>` is a pinned, boxed async Stream that yields results as they arrive from the API in real-time. Use with `futures::StreamExt` to consume chunks with `.next().await`.
 
 ## Environment Variables
 
@@ -324,10 +455,15 @@ cargo test --package gemini --all-features test_real_api_string_response -- --ig
 
 #### Available Integration Tests
 
+**Non-Streaming Tests:**
 - **`test_real_api_string_response`**: Tests basic string response from the API
 - **`test_real_api_typed_json_response`** (requires `json` feature): Tests typed response with JSON schema
 - **`test_real_api_typed_openapi_response`** (requires `openapi` feature): Tests typed response with OpenAPI schema
 - **`test_real_api_complex_typed_response`** (requires `json` feature): Tests complex nested typed response
+
+**Streaming Tests:**
+- **`test_real_api_string_streaming`**: Tests streaming string responses from the API
+- **`test_real_api_typed_streaming`** (requires `json` feature): Tests streaming with typed JSON responses
 
 #### Feature-Specific Tests
 

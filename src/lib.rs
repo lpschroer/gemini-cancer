@@ -82,7 +82,7 @@ pub mod dto_request;
 pub mod dto_response;
 
 // Re-export commonly used types
-pub use api::{GeminiApi, GeminiStreamingApi, StreamingResponseIterator};
+pub use api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
 pub use client::GeminiV1Beta;
 pub use config::GeminiConfig;
 pub use dto_content::{
