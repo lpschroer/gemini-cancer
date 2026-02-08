@@ -278,14 +278,11 @@ mod tests {
     #[tokio::test]
     async fn test_generate_content_request_serialization() {
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Hello".to_string()))
-                        .build(),
-                ],
-                role: None,
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Hello".to_string()))
+                    .build(),
+            ]))
             .build();
 
         // Verify serialization works
@@ -578,14 +575,11 @@ mod tests {
             let client = GeminiV1Beta::from_env().expect("Failed to create client from env");
 
             let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Say hello in one word".to_string()))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::unspecified(vec![
+                    Part::builder()
+                        .text(JsonString::new("Say hello in one word".to_string()))
+                        .build(),
+                ]))
                 .build();
 
             let response = client
@@ -777,14 +771,11 @@ mod tests {
             let client = GeminiV1Beta::from_env().expect("Failed to create client from env");
 
             let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Count from 1 to 5".to_string()))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::unspecified(vec![
+                    Part::builder()
+                        .text(JsonString::new("Count from 1 to 5".to_string()))
+                        .build(),
+                ]))
                 .build();
 
             let mut stream = client

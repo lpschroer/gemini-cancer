@@ -97,7 +97,7 @@ impl<T> GenerateContentResponse<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto_content::{JsonString, Part, Role};
+    use crate::dto_content::{JsonString, Part};
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct TestSchema {
@@ -129,14 +129,11 @@ mod tests {
     fn test_response_helpers() {
         let response = GenerateContentResponse {
             candidates: vec![Candidate {
-                content: Content {
-                    role: Some(Role::Model),
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Hello".to_string()))
-                            .build(),
-                    ],
-                },
+                content: Content::model(vec![
+                    Part::builder()
+                        .text(JsonString::new("Hello".to_string()))
+                        .build(),
+                ]),
                 finish_reason: None,
                 safety_ratings: vec![],
             }],
@@ -189,13 +186,13 @@ mod tests {
         // Verify first candidate
         let first = &typed_response.candidates[0];
         assert_eq!(first.finish_reason, Some("STOP".to_string()));
-        let first_schema = first.content.parts[0].text().unwrap();
+        let first_schema = first.content.parts()[0].text().unwrap();
         assert_eq!(first_schema.name, "Alice");
         assert_eq!(first_schema.age, 30);
 
         // Verify second candidate
         let second = &typed_response.candidates[1];
-        let second_schema = second.content.parts[0].text().unwrap();
+        let second_schema = second.content.parts()[0].text().unwrap();
         assert_eq!(second_schema.name, "Bob");
         assert_eq!(second_schema.age, 25);
 

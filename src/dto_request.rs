@@ -58,7 +58,7 @@ use std::marker::PhantomData;
 
 pub use crate::dto_content::{
     Blob, CodeExecutionResult, Content, ExecutableCode, FileData, FunctionCall, FunctionResponse,
-    Part, Role, VideoMetadata,
+    Part, VideoMetadata,
 };
 
 /// Error type for GenerationConfig builder validation
@@ -322,7 +322,7 @@ impl<T> GenerateContentRequestBuilder<T> {
 ///
 /// Generic over the expected response type `T`, which defaults to `String`.
 /// Use turbofish syntax like `.response_schema::<MyType>(schema)` for type safety.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GenerationConfig<T = String> {
     /// Phantom data to track the expected response type at compile time
@@ -836,7 +836,7 @@ impl<T> GenerationConfigBuilder<T> {
 }
 
 /// Safety setting for content filtering
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SafetySetting {
     /// Safety category
     pub category: String,
@@ -1293,14 +1293,11 @@ mod tests {
         use crate::dto_content::{Content, JsonString, Part};
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Hello".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Hello".to_string()))
+                    .build(),
+            ]))
             .build();
 
         assert_eq!(request.contents().len(), 1);
@@ -1319,14 +1316,11 @@ mod tests {
             .unwrap();
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Test".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Test".to_string()))
+                    .build(),
+            ]))
             .generation_config(config)
             .build();
 
@@ -1335,25 +1329,19 @@ mod tests {
 
     #[test]
     fn test_generate_content_request_builder_multiple_contents() {
-        use crate::dto_content::{Content, JsonString, Part, Role};
+        use crate::dto_content::{Content, JsonString, Part};
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: Some(Role::User),
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("First message".to_string()))
-                        .build(),
-                ],
-            })
-            .add_content(Content {
-                role: Some(Role::Model),
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Response".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::user(vec![
+                Part::builder()
+                    .text(JsonString::new("First message".to_string()))
+                    .build(),
+            ]))
+            .add_content(Content::model(vec![
+                Part::builder()
+                    .text(JsonString::new("Response".to_string()))
+                    .build(),
+            ]))
             .build();
 
         assert_eq!(request.contents().len(), 2);
@@ -1369,14 +1357,11 @@ mod tests {
         };
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Test".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Test".to_string()))
+                    .build(),
+            ]))
             .add_safety_setting(setting)
             .build();
 
@@ -1388,24 +1373,18 @@ mod tests {
     fn test_generate_content_request_builder_with_system_instruction() {
         use crate::dto_content::{Content, JsonString, Part};
 
-        let system_instruction = Content {
-            role: None,
-            parts: vec![
-                Part::builder()
-                    .text(JsonString::new("You are a helpful assistant".to_string()))
-                    .build(),
-            ],
-        };
+        let system_instruction = Content::unspecified(vec![
+            Part::builder()
+                .text(JsonString::new("You are a helpful assistant".to_string()))
+                .build(),
+        ]);
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Hello".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Hello".to_string()))
+                    .build(),
+            ]))
             .system_instruction(system_instruction)
             .build();
 
@@ -1417,22 +1396,16 @@ mod tests {
         use crate::dto_content::{Content, JsonString, Part};
 
         let contents = vec![
-            Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Message 1".to_string()))
-                        .build(),
-                ],
-            },
-            Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Message 2".to_string()))
-                        .build(),
-                ],
-            },
+            Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Message 1".to_string()))
+                    .build(),
+            ]),
+            Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Message 2".to_string()))
+                    .build(),
+            ]),
         ];
 
         let request: GenerateContentRequest<String> =
@@ -1451,14 +1424,11 @@ mod tests {
             .unwrap();
 
         let request: GenerateContentRequest<String> = GenerateContentRequest::builder()
-            .add_content(Content {
-                role: None,
-                parts: vec![
-                    Part::builder()
-                        .text(JsonString::new("Test".to_string()))
-                        .build(),
-                ],
-            })
+            .add_content(Content::unspecified(vec![
+                Part::builder()
+                    .text(JsonString::new("Test".to_string()))
+                    .build(),
+            ]))
             .generation_config(config)
             .build();
 

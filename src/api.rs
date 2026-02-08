@@ -6,7 +6,7 @@ use futures::Stream;
 
 pub use super::dto_content::{
     Blob, CodeExecutionResult, Content, ExecutableCode, FileData, FunctionCall, FunctionResponse,
-    JsonString, Part, Role, VideoMetadata,
+    JsonString, Part, VideoMetadata,
 };
 pub use super::dto_request::{
     GenerateContentRequest, GenerationConfig, GenerationConfigBuilder, MimeType, ResponseMimeType,

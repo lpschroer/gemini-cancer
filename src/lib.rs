@@ -15,21 +15,18 @@
 //! ### Basic Request
 //!
 //! ```rust,ignore
-//! use gemini::{GeminiConfig, GenerateContentRequest, Content, Part, Role, JsonString};
+//! use gemini::{GeminiConfig, GenerateContentRequest, Content, Part, JsonString};
 //!
 //! // Create configuration from environment
 //! let config = GeminiConfig::from_env()?;
 //!
 //! // Build a request using the builder pattern
 //! let request = GenerateContentRequest::builder()
-//!     .add_content(Content {
-//!         role: Some(Role::User),
-//!         parts: vec![
-//!             Part::builder()
-//!                 .text(JsonString::new("Tell me a story".to_string()))
-//!                 .build(),
-//!         ],
-//!     })
+//!     .add_content(Content::user(vec![
+//!         Part::builder()
+//!             .text(JsonString::new("Tell me a story".to_string()))
+//!             .build(),
+//!     ]))
 //!     .build();
 //! ```
 //!
@@ -49,14 +46,11 @@
 //!
 //! // Create typed request with auto-derived schema using builder pattern
 //! let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
-//!     .add_content(Content {
-//!         role: Some(Role::User),
-//!         parts: vec![
-//!             Part::builder()
-//!                 .text(JsonString::new("Create a character".to_string()))
-//!                 .build(),
-//!         ],
-//!     })
+//!     .add_content(Content::user(vec![
+//!         Part::builder()
+//!             .text(JsonString::new("Create a character".to_string()))
+//!             .build(),
+//!     ]))
 //!     .generation_config(
 //!         GenerationConfig::builder()
 //!             .response_json_schema::<Character>()
@@ -88,7 +82,7 @@ pub use client::GeminiV1Beta;
 pub use config::GeminiConfig;
 pub use dto_content::{
     Blob, CodeExecutionResult, Content, ExecutableCode, FileData, FunctionCall, FunctionResponse,
-    JsonString, Part, PartBuilder, Role, VideoMetadata,
+    JsonString, Part, PartBuilder, VideoMetadata,
 };
 pub use dto_request::{
     GenerateContentRequest, GenerateContentRequestBuilder, GenerationConfig,
