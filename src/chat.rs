@@ -1,7 +1,189 @@
 //! Chat wrapper for managing multi-turn conversations with the Gemini API
 //!
-//! This module provides utilities for managing conversation history
-//! automatically across multiple turns.
+//! This module provides utilities for managing conversation history automatically
+//! across multiple turns, supporting both non-streaming and streaming chat interactions.
+//!
+//! # Overview
+//!
+//! The chat module offers two main wrapper types:
+//! - [`GeminiChat`] - For non-streaming conversations with blocking responses
+//! - [`GeminiStreamChat`] - For streaming conversations with real-time response chunks
+//!
+//! Both types automatically manage conversation history using `Vec<Content<String>>`,
+//! which provides type safety while allowing easy persistence via serde serialization.
+//!
+//! # Basic Usage (Non-Streaming)
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiV1Beta, GeminiConfig, GeminiChat};
+//!
+//! // Create API client
+//! let config = GeminiConfig::from_env()?;
+//! let client = GeminiV1Beta::new(config);
+//!
+//! // Create chat session
+//! let mut chat = GeminiChat::new(client);
+//!
+//! // Send a simple text message
+//! let response = chat
+//!     .send_message()
+//!     .text("Hello! Can you help me with Rust?")
+//!     .send()
+//!     .await?;
+//!
+//! println!("Response: {:?}", response.first_text());
+//!
+//! // Continue the conversation - history is maintained automatically
+//! let response2 = chat
+//!     .send_message()
+//!     .text("What are the main benefits of Rust?")
+//!     .send()
+//!     .await?;
+//!
+//! println!("Response: {:?}", response2.first_text());
+//! ```
+//!
+//! # Streaming Usage
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiV1Beta, GeminiConfig, GeminiStreamChat};
+//! use futures::StreamExt;
+//!
+//! // Create streaming API client
+//! let config = GeminiConfig::from_env()?;
+//! let client = GeminiV1Beta::new(config);
+//!
+//! // Create streaming chat session
+//! let mut chat = GeminiStreamChat::new(client);
+//!
+//! // Send a message and stream the response
+//! let mut stream = chat
+//!     .send_message_stream()
+//!     .text("Tell me a story")
+//!     .send()
+//!     .await?;
+//!
+//! // Process each chunk as it arrives
+//! while let Some(chunk) = stream.next().await {
+//!     let response = chunk?;
+//!     if let Some(text) = response.first_text() {
+//!         print!("{}", text);
+//!     }
+//! }
+//!
+//! // History is automatically updated when stream completes
+//! ```
+//!
+//! # Advanced Configuration
+//!
+//! Both chat types support per-message configuration:
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiChat, GenerationConfig, SafetySetting};
+//! use serde::{Deserialize, Serialize};
+//!
+//! #[derive(Serialize, Deserialize, schemars::JsonSchema)]
+//! struct Character {
+//!     name: String,
+//!     backstory: String,
+//! }
+//!
+//! let response = chat
+//!     .send_message()
+//!     .text("Create a fantasy character")
+//!     .generation_config(
+//!         GenerationConfig::builder()
+//!             .temperature(0.9)
+//!             .response_json_schema::<Character>()
+//!             .build()?
+//!     )
+//!     .safety_settings(vec![/* custom safety settings */])
+//!     .send()
+//!     .await?;
+//!
+//! // Response is typed as Character
+//! if let Some(character) = response.first_text() {
+//!     println!("Character: {}", character.name);
+//! }
+//! ```
+//!
+//! # Persistence
+//!
+//! Save and restore conversation history:
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiChat, GeminiV1Beta, GeminiConfig};
+//!
+//! // Get history from active chat
+//! let history = chat.get_history();
+//! let json = serde_json::to_string(history)?;
+//!
+//! // Store json to database/file
+//! store_to_database(&json)?;
+//!
+//! // Later: restore the conversation
+//! let loaded_json = load_from_database()?;
+//! let history = serde_json::from_str(&loaded_json)?;
+//!
+//! let config = GeminiConfig::from_env()?;
+//! let client = GeminiV1Beta::new(config);
+//! let mut restored_chat = GeminiChat::from_history(client, history);
+//!
+//! // Continue the conversation where you left off
+//! let response = restored_chat
+//!     .send_message()
+//!     .text("Let's continue our discussion")
+//!     .send()
+//!     .await?;
+//! ```
+//!
+//! # Sending Structured Data
+//!
+//! Send JSON-serialized data as part of messages:
+//!
+//! ```rust,ignore
+//! use serde::Serialize;
+//!
+//! #[derive(Serialize)]
+//! struct UserContext {
+//!     user_id: String,
+//!     preferences: Vec<String>,
+//! }
+//!
+//! let context = UserContext {
+//!     user_id: "user123".to_string(),
+//!     preferences: vec!["fantasy".to_string(), "sci-fi".to_string()],
+//! };
+//!
+//! let response = chat
+//!     .send_message()
+//!     .json(&context)
+//!     .send()
+//!     .await?;
+//! ```
+//!
+//! # Multi-Part Messages
+//!
+//! Send messages with multiple parts (text, images, etc.):
+//!
+//! ```rust,ignore
+//! use gemini::{Part, JsonString};
+//!
+//! let parts = vec![
+//!     Part::builder()
+//!         .text(JsonString::new("Analyze this image:".to_string()))
+//!         .build(),
+//!     Part::builder()
+//!         .inline_data(blob_data, "image/png".to_string())
+//!         .build(),
+//! ];
+//!
+//! let response = chat
+//!     .send_message()
+//!     .parts(parts)
+//!     .send()
+//!     .await?;
+//! ```
 
 use crate::api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
 use crate::dto_content::{Content, JsonString, Part};
@@ -1311,7 +1493,7 @@ mod tests {
         // Consume stream
         {
             let mut pinned_stream = Box::pin(stream);
-            while let Some(_) = pinned_stream.next().await {}
+            while (pinned_stream.next().await).is_some() {}
         }
 
         assert_eq!(chat.get_history().len(), 2);
@@ -1386,7 +1568,7 @@ mod tests {
                 .await
                 .expect("Failed to send first message");
             let mut pinned = Box::pin(stream1);
-            while let Some(_) = pinned.next().await {}
+            while (pinned.next().await).is_some() {}
         }
 
         assert_eq!(chat.get_history().len(), 2);
@@ -1400,7 +1582,7 @@ mod tests {
                 .await
                 .expect("Failed to send second message");
             let mut pinned = Box::pin(stream2);
-            while let Some(_) = pinned.next().await {}
+            while (pinned.next().await).is_some() {}
         }
 
         assert_eq!(chat.get_history().len(), 4);

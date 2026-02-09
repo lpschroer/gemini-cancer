@@ -9,6 +9,7 @@
 //! - Generic text parsing for structured JSON responses
 //! - Configurable via environment variables or explicit configuration
 //! - Streaming and non-streaming content generation
+//! - Chat wrappers for managing multi-turn conversations with automatic history
 //!
 //! ## Example Usage
 //!
@@ -66,6 +67,64 @@
 //!     println!("Character: {} (age {})", character.name, character.age);
 //! }
 //! ```
+//!
+//! ### Multi-Turn Conversations (Chat)
+//!
+//! For managing conversations with automatic history:
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiV1Beta, GeminiConfig, GeminiChat};
+//!
+//! // Create API client and chat session
+//! let config = GeminiConfig::from_env()?;
+//! let client = GeminiV1Beta::new(config);
+//! let mut chat = GeminiChat::new(client);
+//!
+//! // Send messages - history is maintained automatically
+//! let response = chat
+//!     .send_message()
+//!     .text("Hello! Can you help me with Rust?")
+//!     .send()
+//!     .await?;
+//!
+//! let response2 = chat
+//!     .send_message()
+//!     .text("What are the main benefits?")
+//!     .send()
+//!     .await?;
+//!
+//! // Save conversation history
+//! let history = chat.get_history();
+//! let json = serde_json::to_string(history)?;
+//! ```
+//!
+//! ### Streaming Chat
+//!
+//! For real-time streaming responses:
+//!
+//! ```rust,ignore
+//! use gemini::{GeminiV1Beta, GeminiConfig, GeminiStreamChat};
+//! use futures::StreamExt;
+//!
+//! let config = GeminiConfig::from_env()?;
+//! let client = GeminiV1Beta::new(config);
+//! let mut chat = GeminiStreamChat::new(client);
+//!
+//! // Stream the response
+//! let mut stream = chat
+//!     .send_message_stream()
+//!     .text("Tell me a story")
+//!     .send()
+//!     .await?;
+//!
+//! while let Some(chunk) = stream.next().await {
+//!     let response = chunk?;
+//!     if let Some(text) = response.first_text() {
+//!         print!("{}", text);
+//!     }
+//! }
+//! // History is updated automatically when stream completes
+//! ```
 
 // Public module exports
 pub mod api;
@@ -78,6 +137,7 @@ pub mod dto_response;
 
 // Re-export commonly used types
 pub use api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
+pub use chat::{BufferedChatStream, GeminiChat, GeminiStreamChat};
 pub use client::GeminiV1Beta;
 pub use config::GeminiConfig;
 pub use dto_content::{

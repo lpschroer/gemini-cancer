@@ -443,14 +443,11 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Create a character".to_string()))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new("Create a character".to_string()))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
@@ -514,14 +511,11 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Item> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Create an item".to_string()))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new("Create an item".to_string()))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
@@ -615,14 +609,11 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Greeting> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new("Create a greeting in English".to_string()))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new("Create a greeting in English".to_string()))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
@@ -664,16 +655,13 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Animal> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new(
-                                "Create an animal with name, species, and age".to_string(),
-                            ))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new(
+                            "Create an animal with name, species, and age".to_string(),
+                        ))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
@@ -726,18 +714,15 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Character> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new(
-                                "Create a fantasy RPG character with name, age, class, \
-                                 a list of 3 skills, and stats (strength, intelligence, charisma)"
-                                    .to_string(),
-                            ))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new(
+                            "Create a fantasy RPG character with name, age, class, \
+                             a list of 3 skills, and stats (strength, intelligence, charisma)"
+                                .to_string(),
+                        ))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
@@ -818,17 +803,13 @@ mod tests {
                 .unwrap();
 
             let request: GenerateContentRequest<Story> = GenerateContentRequest::builder()
-                .add_content(Content {
-                    parts: vec![
-                        Part::builder()
-                            .text(JsonString::new(
-                                "Create a short story idea with title, genre, and summary"
-                                    .to_string(),
-                            ))
-                            .build(),
-                    ],
-                    role: None,
-                })
+                .add_content(Content::user(vec![
+                    Part::builder()
+                        .text(JsonString::new(
+                            "Create a short story idea with title, genre, and summary".to_string(),
+                        ))
+                        .build(),
+                ]))
                 .generation_config(config)
                 .build();
 
