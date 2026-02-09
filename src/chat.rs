@@ -3,11 +3,14 @@
 //! This module provides utilities for managing conversation history
 //! automatically across multiple turns.
 
-use crate::api::GeminiApi;
+use crate::api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
 use crate::dto_content::{Content, JsonString, Part};
 use crate::dto_request::{GenerateContentRequest, GenerationConfig, SafetySetting};
 use crate::dto_response::GenerateContentResponse;
+use futures::stream::Stream;
 use std::error::Error;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 /// Chat wrapper for managing multi-turn conversations with the Gemini API
 ///
@@ -334,10 +337,302 @@ where
     }
 }
 
+/// Streaming chat wrapper for managing multi-turn conversations with the Gemini API
+///
+/// `GeminiStreamChat` maintains conversation history and provides streaming responses,
+/// buffering model responses until the stream completes before adding them to history.
+///
+/// # Type Parameters
+/// * `A` - The GeminiStreamingApi implementor type
+pub struct GeminiStreamChat<A> {
+    /// The underlying streaming API client
+    api: A,
+    /// Conversation history with typed Content messages
+    history: Vec<Content<String>>,
+}
+
+impl<A> GeminiStreamChat<A>
+where
+    A: GeminiStreamingApi,
+{
+    /// Creates a new chat instance with empty history
+    ///
+    /// # Arguments
+    /// * `api` - The GeminiStreamingApi implementor to use for API calls
+    ///
+    /// # Example
+    /// ```ignore
+    /// let chat = GeminiStreamChat::new(api_client);
+    /// ```
+    pub fn new(api: A) -> Self {
+        Self {
+            api,
+            history: Vec::new(),
+        }
+    }
+
+    /// Creates a chat instance from existing history
+    ///
+    /// # Arguments
+    /// * `api` - The GeminiStreamingApi implementor to use for API calls
+    /// * `history` - Previous conversation history to restore
+    pub fn from_history(api: A, history: Vec<Content<String>>) -> Self {
+        Self { api, history }
+    }
+
+    /// Begin building a streaming message to send
+    ///
+    /// Returns a builder that allows setting message content and optional
+    /// configuration before sending.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let mut stream = chat.send_message_stream()
+    ///     .text("Hello!")
+    ///     .send()
+    ///     .await?;
+    /// ```
+    pub fn send_message_stream<T>(&mut self) -> SendMessageStreamBuilder<'_, A, T>
+    where
+        T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+    {
+        SendMessageStreamBuilder::new(self)
+    }
+
+    /// Get a reference to the conversation history
+    ///
+    /// Returns a slice of `Content<String>` that can be serialized directly
+    /// for persistence using `serde_json::to_string()`.
+    pub fn get_history(&self) -> &[Content<String>] {
+        &self.history
+    }
+
+    /// Clear the conversation history
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+}
+
+/// Builder for sending streaming messages with optional configuration
+///
+/// Created via `GeminiStreamChat::send_message_stream()`
+pub struct SendMessageStreamBuilder<'a, A, T> {
+    chat: &'a mut GeminiStreamChat<A>,
+    message_parts: Option<Vec<Part<String>>>,
+    generation_config: Option<GenerationConfig<T>>,
+    safety_settings: Option<Vec<SafetySetting>>,
+}
+
+impl<'a, A, T> SendMessageStreamBuilder<'a, A, T>
+where
+    A: GeminiStreamingApi,
+    T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+{
+    fn new(chat: &'a mut GeminiStreamChat<A>) -> Self {
+        Self {
+            chat,
+            message_parts: None,
+            generation_config: None,
+            safety_settings: None,
+        }
+    }
+
+    /// Set the message as plain text
+    ///
+    /// # Arguments
+    /// * `text` - The text content to send
+    pub fn text(mut self, text: impl Into<String>) -> Self {
+        self.message_parts = Some(vec![
+            Part::builder().text(JsonString::new(text.into())).build(),
+        ]);
+        self
+    }
+
+    /// Set the message as JSON-serialized text
+    ///
+    /// This serializes the provided value to JSON and sends it as text content.
+    ///
+    /// # Arguments
+    /// * `value` - A serializable value to send as JSON text
+    ///
+    /// # Panics
+    /// Panics if serialization fails
+    pub fn json(mut self, value: impl serde::Serialize) -> Self {
+        let json_text = serde_json::to_string(&value).expect("Failed to serialize JSON");
+        self.message_parts = Some(vec![
+            Part::builder().text(JsonString::new(json_text)).build(),
+        ]);
+        self
+    }
+
+    /// Set the message as multiple parts
+    ///
+    /// # Arguments
+    /// * `parts` - Vector of content parts to send
+    pub fn parts(mut self, parts: Vec<Part<String>>) -> Self {
+        self.message_parts = Some(parts);
+        self
+    }
+
+    /// Set optional generation configuration
+    ///
+    /// # Arguments
+    /// * `config` - The generation config to use for this message
+    pub fn generation_config(mut self, config: GenerationConfig<T>) -> Self {
+        self.generation_config = Some(config);
+        self
+    }
+
+    /// Set optional safety settings
+    ///
+    /// # Arguments
+    /// * `settings` - Vector of safety settings to apply
+    pub fn safety_settings(mut self, settings: Vec<SafetySetting>) -> Self {
+        self.safety_settings = Some(settings);
+        self
+    }
+
+    fn add_user_message_to_history(&mut self, parts: Vec<Part<String>>) {
+        self.chat.history.push(Content::User { parts });
+    }
+
+    fn convert_history_to_contents(&self) -> Vec<Content> {
+        self.chat.history.clone()
+    }
+
+    fn build_request(&mut self, contents: Vec<Content>) -> GenerateContentRequest<T> {
+        let mut builder = GenerateContentRequest::builder().contents(contents);
+
+        if let Some(config) = self.generation_config.take() {
+            builder = builder.generation_config(config);
+        }
+
+        if let Some(settings) = self.safety_settings.take() {
+            builder = builder.safety_settings(settings);
+        }
+
+        builder.build()
+    }
+
+    /// Send the message and return a streaming response
+    ///
+    /// This method:
+    /// 1. Wraps the message in `Content::User` and adds to history
+    /// 2. Builds a request with full conversation history
+    /// 3. Calls the streaming API with optional config and safety settings
+    /// 4. Returns a `BufferedChatStream` that buffers the response and updates history on completion
+    ///
+    /// # Returns
+    /// A stream that yields response chunks and updates history when complete
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - No message parts were set
+    /// - The API call fails
+    pub async fn send(mut self) -> Result<BufferedChatStream<'a, T>, Box<dyn Error>> {
+        let parts = self
+            .message_parts
+            .take()
+            .ok_or("Message parts must be set before sending")?;
+
+        self.add_user_message_to_history(parts);
+
+        let contents = self.convert_history_to_contents();
+
+        let request = self.build_request(contents);
+
+        let stream = self.chat.api.stream_generate_content(request).await?;
+
+        Ok(BufferedChatStream::new(stream, &mut self.chat.history))
+    }
+}
+
+/// A streaming response wrapper that buffers content and updates chat history on completion
+///
+/// This stream forwards chunks to the caller while buffering text content internally.
+/// When the stream completes, it constructs a `Content::Model` from the buffered content
+/// and appends it to the conversation history.
+pub struct BufferedChatStream<'a, T> {
+    inner: StreamingResponseStream<T>,
+    history: &'a mut Vec<Content<String>>,
+    buffer: Vec<String>,
+    completed: bool,
+}
+
+impl<'a, T> BufferedChatStream<'a, T> {
+    fn new(stream: StreamingResponseStream<T>, history: &'a mut Vec<Content<String>>) -> Self {
+        Self {
+            inner: stream,
+            history,
+            buffer: Vec::new(),
+            completed: false,
+        }
+    }
+
+    fn extract_text_from_response(response: &GenerateContentResponse<T>) -> Vec<String>
+    where
+        T: Clone + ToString,
+    {
+        response
+            .candidates
+            .iter()
+            .flat_map(|candidate| {
+                candidate
+                    .content
+                    .parts()
+                    .iter()
+                    .filter_map(|part| part.text().map(|text| text.to_string()))
+            })
+            .collect()
+    }
+
+    fn finalize_history(&mut self) {
+        if !self.completed && !self.buffer.is_empty() {
+            let combined_text = self.buffer.join("");
+            let parts = vec![Part::builder().text(JsonString::new(combined_text)).build()];
+            self.history.push(Content::Model { parts });
+            self.completed = true;
+        }
+    }
+}
+
+impl<'a, T> Stream for BufferedChatStream<'a, T>
+where
+    T: Unpin + Clone + ToString,
+{
+    type Item = Result<GenerateContentResponse<T>, Box<dyn Error + Send + Sync>>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.inner.as_mut().poll_next(cx) {
+            Poll::Ready(Some(Ok(response))) => {
+                // Buffer text content from this chunk
+                let texts = Self::extract_text_from_response(&response);
+                self.buffer.extend(texts);
+                Poll::Ready(Some(Ok(response)))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => {
+                // Stream complete - finalize history
+                self.finalize_history();
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+impl<'a, T> Drop for BufferedChatStream<'a, T> {
+    fn drop(&mut self) {
+        // Ensure history is updated even if stream is dropped early
+        self.finalize_history();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::api::GeminiApi;
+    use futures::stream::StreamExt;
 
     #[test]
     fn test_gemini_chat_new() {
@@ -710,5 +1005,416 @@ mod tests {
         assert!(restored[1].is_model());
         assert_eq!(restored[0].parts()[0].text().unwrap(), "Question");
         assert_eq!(restored[1].parts()[0].text().unwrap(), "Answer");
+    }
+
+    #[tokio::test]
+    async fn test_gemini_stream_chat_new() {
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                _request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                unimplemented!()
+            }
+        }
+
+        let chat = GeminiStreamChat::new(MockStreamApi);
+        assert_eq!(chat.get_history().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_gemini_stream_chat_from_history() {
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                _request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                unimplemented!()
+            }
+        }
+
+        let history = vec![
+            Content::User {
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Hello".to_string()))
+                        .build(),
+                ],
+            },
+            Content::Model {
+                parts: vec![
+                    Part::builder()
+                        .text(JsonString::new("Hi there!".to_string()))
+                        .build(),
+                ],
+            },
+        ];
+
+        let chat = GeminiStreamChat::from_history(MockStreamApi, history);
+        assert_eq!(chat.get_history().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_gemini_stream_chat_clear_history() {
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                _request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                unimplemented!()
+            }
+        }
+
+        let history = vec![Content::User {
+            parts: vec![
+                Part::builder()
+                    .text(JsonString::new("Hello".to_string()))
+                    .build(),
+            ],
+        }];
+
+        let mut chat = GeminiStreamChat::from_history(MockStreamApi, history);
+        assert_eq!(chat.get_history().len(), 1);
+
+        chat.clear_history();
+        assert_eq!(chat.get_history().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_send_message_stream_accumulates_history() {
+        use futures::stream;
+
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                // Verify request contains history
+                assert!(!request.contents().is_empty());
+
+                // Helper to create properly typed response
+                fn create_response<T>(text: &str) -> GenerateContentResponse<T>
+                where
+                    T: serde::de::DeserializeOwned + serde::Serialize + 'static,
+                {
+                    // Create a response with String type first
+                    let string_response = GenerateContentResponse::<String> {
+                        candidates: vec![crate::dto_response::Candidate {
+                            content: Content::Model {
+                                parts: vec![
+                                    Part::builder()
+                                        .text(JsonString::new(text.to_string()))
+                                        .build(),
+                                ],
+                            },
+                            finish_reason: None,
+                            safety_ratings: vec![],
+                        }],
+                        prompt_feedback: None,
+                        usage_metadata: None,
+                    };
+
+                    // Serialize and deserialize to convert types
+                    let json = serde_json::to_string(&string_response).unwrap();
+                    serde_json::from_str(&json).unwrap()
+                }
+
+                let response1 = create_response::<T>("Hello ");
+                let response2 = create_response::<T>("world!");
+
+                let stream = stream::iter(vec![Ok(response1), Ok(response2)]);
+                Ok(Box::pin(stream))
+            }
+        }
+
+        let mut chat = GeminiStreamChat::new(MockStreamApi);
+
+        // Send first message
+        let stream = chat
+            .send_message_stream::<String>()
+            .text("First question")
+            .send()
+            .await
+            .expect("Failed to send message");
+
+        // Consume the stream
+        let mut chunks = Vec::new();
+        {
+            let mut pinned_stream = Box::pin(stream);
+            while let Some(result) = pinned_stream.next().await {
+                let response = result.expect("Stream error");
+                chunks.push(response);
+            }
+        }
+
+        assert_eq!(chunks.len(), 2);
+
+        // After stream completes, history should have user message and buffered model response
+        let history = chat.get_history();
+        assert_eq!(history.len(), 2);
+        assert!(history[0].is_user());
+        assert!(history[1].is_model());
+        assert_eq!(history[0].parts()[0].text().unwrap(), "First question");
+        assert_eq!(history[1].parts()[0].text().unwrap(), "Hello world!");
+    }
+
+    #[tokio::test]
+    async fn test_buffered_stream_updates_history_on_drop() {
+        use futures::stream;
+
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                _request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                fn create_response<T>(text: &str) -> GenerateContentResponse<T>
+                where
+                    T: serde::de::DeserializeOwned + serde::Serialize + 'static,
+                {
+                    let string_response = GenerateContentResponse::<String> {
+                        candidates: vec![crate::dto_response::Candidate {
+                            content: Content::Model {
+                                parts: vec![
+                                    Part::builder()
+                                        .text(JsonString::new(text.to_string()))
+                                        .build(),
+                                ],
+                            },
+                            finish_reason: None,
+                            safety_ratings: vec![],
+                        }],
+                        prompt_feedback: None,
+                        usage_metadata: None,
+                    };
+                    let json = serde_json::to_string(&string_response).unwrap();
+                    serde_json::from_str(&json).unwrap()
+                }
+
+                let response = create_response::<T>("Partial response");
+
+                let stream = stream::iter(vec![Ok(response)]);
+                Ok(Box::pin(stream))
+            }
+        }
+
+        let mut chat = GeminiStreamChat::new(MockStreamApi);
+
+        {
+            let stream = chat
+                .send_message_stream::<String>()
+                .text("Question")
+                .send()
+                .await
+                .expect("Failed to send message");
+
+            // Poll stream once to get the partial response
+            let mut pinned = Box::pin(stream);
+            let _ = pinned.next().await;
+
+            // Stream is dropped here without being fully consumed
+        }
+
+        // History should still be updated with the partial response
+        let history = chat.get_history();
+        assert_eq!(history.len(), 2);
+        assert!(history[0].is_user());
+        assert!(history[1].is_model());
+    }
+
+    #[tokio::test]
+    async fn test_send_message_stream_with_config() {
+        use futures::stream;
+
+        struct MockStreamApi;
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                // Verify config was passed through
+                assert!(request.generation_config().is_some());
+
+                fn create_response<T>(text: &str) -> GenerateContentResponse<T>
+                where
+                    T: serde::de::DeserializeOwned + serde::Serialize + 'static,
+                {
+                    let string_response = GenerateContentResponse::<String> {
+                        candidates: vec![crate::dto_response::Candidate {
+                            content: Content::Model {
+                                parts: vec![
+                                    Part::builder()
+                                        .text(JsonString::new(text.to_string()))
+                                        .build(),
+                                ],
+                            },
+                            finish_reason: None,
+                            safety_ratings: vec![],
+                        }],
+                        prompt_feedback: None,
+                        usage_metadata: None,
+                    };
+                    let json = serde_json::to_string(&string_response).unwrap();
+                    serde_json::from_str(&json).unwrap()
+                }
+
+                let response = create_response::<T>("Response");
+
+                let stream = stream::iter(vec![Ok(response)]);
+                Ok(Box::pin(stream))
+            }
+        }
+
+        let mut chat = GeminiStreamChat::new(MockStreamApi);
+
+        let config = GenerationConfig::<String>::builder()
+            .temperature(0.7)
+            .build()
+            .expect("Failed to build config");
+
+        let stream = chat
+            .send_message_stream::<String>()
+            .text("Question")
+            .generation_config(config)
+            .send()
+            .await
+            .expect("Failed to send message");
+
+        // Consume stream
+        {
+            let mut pinned_stream = Box::pin(stream);
+            while let Some(_) = pinned_stream.next().await {}
+        }
+
+        assert_eq!(chat.get_history().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_send_message_stream_multiple_turns() {
+        use futures::stream;
+
+        struct MockStreamApi {
+            call_count: std::sync::Arc<std::sync::Mutex<usize>>,
+        }
+
+        #[async_trait::async_trait]
+        impl GeminiStreamingApi for MockStreamApi {
+            async fn stream_generate_content<T>(
+                &self,
+                request: GenerateContentRequest<T>,
+            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            where
+                T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
+            {
+                let mut count = self.call_count.lock().unwrap();
+                *count += 1;
+                let current_count = *count;
+
+                // Verify history grows with each call
+                assert_eq!(request.contents().len(), (current_count - 1) * 2 + 1);
+
+                fn create_response<T>(text: &str) -> GenerateContentResponse<T>
+                where
+                    T: serde::de::DeserializeOwned + serde::Serialize + 'static,
+                {
+                    let string_response = GenerateContentResponse::<String> {
+                        candidates: vec![crate::dto_response::Candidate {
+                            content: Content::Model {
+                                parts: vec![
+                                    Part::builder()
+                                        .text(JsonString::new(text.to_string()))
+                                        .build(),
+                                ],
+                            },
+                            finish_reason: None,
+                            safety_ratings: vec![],
+                        }],
+                        prompt_feedback: None,
+                        usage_metadata: None,
+                    };
+                    let json = serde_json::to_string(&string_response).unwrap();
+                    serde_json::from_str(&json).unwrap()
+                }
+
+                let response_text = format!("Response {}", current_count);
+                let response = create_response::<T>(&response_text);
+
+                let stream = stream::iter(vec![Ok(response)]);
+                Ok(Box::pin(stream))
+            }
+        }
+
+        let call_count = std::sync::Arc::new(std::sync::Mutex::new(0));
+        let mut chat = GeminiStreamChat::new(MockStreamApi {
+            call_count: call_count.clone(),
+        });
+
+        // First message
+        {
+            let stream1 = chat
+                .send_message_stream::<String>()
+                .text("First")
+                .send()
+                .await
+                .expect("Failed to send first message");
+            let mut pinned = Box::pin(stream1);
+            while let Some(_) = pinned.next().await {}
+        }
+
+        assert_eq!(chat.get_history().len(), 2);
+
+        // Second message
+        {
+            let stream2 = chat
+                .send_message_stream::<String>()
+                .text("Second")
+                .send()
+                .await
+                .expect("Failed to send second message");
+            let mut pinned = Box::pin(stream2);
+            while let Some(_) = pinned.next().await {}
+        }
+
+        assert_eq!(chat.get_history().len(), 4);
+
+        // Verify content
+        assert_eq!(chat.get_history()[0].parts()[0].text().unwrap(), "First");
+        assert_eq!(
+            chat.get_history()[1].parts()[0].text().unwrap(),
+            "Response 1"
+        );
+        assert_eq!(chat.get_history()[2].parts()[0].text().unwrap(), "Second");
+        assert_eq!(
+            chat.get_history()[3].parts()[0].text().unwrap(),
+            "Response 2"
+        );
     }
 }
