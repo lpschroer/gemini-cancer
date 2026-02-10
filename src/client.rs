@@ -67,7 +67,13 @@ impl GeminiV1Beta {
     ///
     /// The updated buffer with new bytes appended
     fn process_bytes_chunk(bytes: &[u8], buffer: &mut String) {
-        buffer.push_str(&String::from_utf8_lossy(bytes));
+        let chunk_str = String::from_utf8_lossy(bytes);
+        tracing::trace!(
+            "Gemini stream: received {} bytes, buffer now {} chars",
+            bytes.len(),
+            buffer.len() + chunk_str.len()
+        );
+        buffer.push_str(&chunk_str);
     }
 
     /// Extracts a complete SSE message from the buffer if available.
@@ -86,24 +92,74 @@ impl GeminiV1Beta {
     /// This function modifies the buffer in-place, removing the extracted message
     fn extract_sse_message(buffer: &mut String) -> Option<String> {
         loop {
-            // Try to find a complete SSE message (terminated by \n\n)
-            if let Some(pos) = buffer.find("\n\n") {
-                let complete_chunk = buffer[..pos].to_string();
-                *buffer = buffer[pos + 2..].to_string();
-
-                // Parse SSE format: "data: {json}"
-                if let Some(json_data) = complete_chunk.strip_prefix("data: ") {
-                    let json_data = json_data.trim();
-                    if !json_data.is_empty() {
-                        return Some(json_data.to_string());
+            // Try to find a complete SSE message
+            // Handle different line ending formats: \r\n\r\n, \n\n, or \r\n followed by data:
+            let (pos, delimiter_len) = if let Some(p) = buffer.find("\r\n\r\n") {
+                (p, 4)
+            } else if let Some(p) = buffer.find("\n\n") {
+                (p, 2)
+            } else if let Some(p) = buffer.find("\r\ndata: ") {
+                // Handle case where messages are separated by \r\n without double newline
+                (p, 2)
+            } else if let Some(p) = buffer.find("\ndata: ") {
+                // Handle case where messages are separated by single \n
+                // Only match if this is not at position 0 (i.e., there's content before it)
+                if p > 0 {
+                    (p, 1)
+                } else {
+                    // No delimiter found yet
+                    if !buffer.is_empty() {
+                        tracing::trace!(
+                            "🔍 SSE: No message boundary found yet, buffer has {} chars, starts with: {}",
+                            buffer.len(),
+                            if buffer.len() > 100 {
+                                format!("{}...", &buffer[..100])
+                            } else {
+                                buffer.clone()
+                            }
+                        );
                     }
+                    return None;
                 }
+            } else {
+                // No delimiter found yet
+                if !buffer.is_empty() {
+                    tracing::trace!(
+                        "🔍 SSE: No message boundary found yet, buffer has {} chars, starts with: {}",
+                        buffer.len(),
+                        if buffer.len() > 100 {
+                            format!("{}...", &buffer[..100])
+                        } else {
+                            buffer.clone()
+                        }
+                    );
+                }
+                return None;
+            };
 
-                // If we had a \n\n but no valid data, try again with remaining buffer
-                continue;
+            let complete_chunk = buffer[..pos].to_string();
+            *buffer = buffer[pos + delimiter_len..].to_string();
+
+            tracing::trace!(
+                "SSE: Found message boundary at pos {}, chunk len {}",
+                pos,
+                complete_chunk.len()
+            );
+
+            // Parse SSE format: "data: {json}"
+            // Also handle potential whitespace or BOM at the start
+            let trimmed = complete_chunk.trim_start();
+            if let Some(json_data) = trimmed.strip_prefix("data: ") {
+                let json_data = json_data.trim();
+                if !json_data.is_empty() {
+                    return Some(json_data.to_string());
+                }
+            } else {
+                tracing::trace!("SSE: Chunk doesn't start with 'data: ', skipping");
             }
 
-            return None;
+            // If we had a delimiter but no valid data, try again with remaining buffer
+            continue;
         }
     }
 
@@ -205,14 +261,43 @@ impl GeminiStreamingApi for GeminiV1Beta {
                             {
                                 return Some((result, (byte_stream, buffer)));
                             }
+                            // Continue looping to get more bytes
                         }
                         Some(Err(e)) => {
+                            tracing::error!("Gemini stream error: {:?}", e);
                             return Some((
                                 Self::handle_stream_error::<T>(e),
                                 (byte_stream, buffer),
                             ));
                         }
-                        None => return None,
+                        None => {
+                            // Stream ended - try to parse any remaining buffer as final message
+                            if !buffer.is_empty() {
+                                let trimmed = buffer.trim();
+                                if let Some(json_data) = trimmed.strip_prefix("data: ") {
+                                    let json_data = json_data.trim();
+                                    if !json_data.is_empty() {
+                                        tracing::trace!(
+                                            "SSE: Treating remaining buffer as final message ({} chars)",
+                                            json_data.len()
+                                        );
+                                        let result =
+                                            Self::parse_incomplete::<T>(json_data.to_string())
+                                                .map_err(|e| {
+                                                    Box::new(e) as Box<dyn Error + Send + Sync>
+                                                });
+                                        buffer.clear();
+                                        return Some((result, (byte_stream, buffer)));
+                                    }
+                                }
+
+                                tracing::warn!(
+                                    "Gemini stream: discarding {} chars of unparseable data at end",
+                                    buffer.len()
+                                );
+                            }
+                            return None;
+                        }
                     }
                 }
             },
