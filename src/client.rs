@@ -2,6 +2,7 @@
 
 use std::error::Error;
 
+use async_stream::stream;
 use async_trait::async_trait;
 use futures::StreamExt;
 
@@ -248,60 +249,46 @@ impl GeminiStreamingApi for GeminiV1Beta {
             .map_err(|e| Box::new(e) as Box<dyn Error>)?;
 
         // Get the response body as a stream of bytes
-        let byte_stream = response.bytes_stream();
+        let mut byte_stream = response.bytes_stream();
 
-        let stream = futures::stream::unfold(
-            (byte_stream, String::new()),
-            |(mut byte_stream, mut buffer)| async move {
-                loop {
-                    match byte_stream.next().await {
-                        Some(Ok(bytes)) => {
-                            if let Some(result) =
-                                Self::handle_stream_bytes::<T>(&bytes, &mut buffer)
-                            {
-                                return Some((result, (byte_stream, buffer)));
-                            }
-                            // Continue looping to get more bytes
-                        }
-                        Some(Err(e)) => {
-                            tracing::error!("Gemini stream error: {:?}", e);
-                            return Some((
-                                Self::handle_stream_error::<T>(e),
-                                (byte_stream, buffer),
-                            ));
-                        }
-                        None => {
-                            // Stream ended - try to parse any remaining buffer as final message
-                            if !buffer.is_empty() {
-                                let trimmed = buffer.trim();
-                                if let Some(json_data) = trimmed.strip_prefix("data: ") {
-                                    let json_data = json_data.trim();
-                                    if !json_data.is_empty() {
-                                        tracing::trace!(
-                                            "SSE: Treating remaining buffer as final message ({} chars)",
-                                            json_data.len()
-                                        );
-                                        let result =
-                                            Self::parse_incomplete::<T>(json_data.to_string())
-                                                .map_err(|e| {
-                                                    Box::new(e) as Box<dyn Error + Send + Sync>
-                                                });
-                                        buffer.clear();
-                                        return Some((result, (byte_stream, buffer)));
-                                    }
-                                }
+        let stream = stream! {
+            let mut buffer = String::new();
 
-                                tracing::warn!(
-                                    "Gemini stream: discarding {} chars of unparseable data at end",
-                                    buffer.len()
-                                );
-                            }
-                            return None;
+            while let Some(result) = byte_stream.next().await {
+                match result {
+                    Ok(bytes) => {
+                        if let Some(result) = Self::handle_stream_bytes::<T>(&bytes, &mut buffer) {
+                            yield result;
                         }
                     }
+                    Err(e) => {
+                        tracing::error!("Gemini stream error: {:?}", e);
+                        yield Self::handle_stream_error::<T>(e);
+                    }
                 }
-            },
-        );
+            }
+
+            // Handle remaining buffer at end of stream
+            if !buffer.is_empty() {
+                let trimmed = buffer.trim();
+                if let Some(json_data) = trimmed.strip_prefix("data: ") {
+                    let json_data = json_data.trim();
+                    if !json_data.is_empty() {
+                        tracing::trace!(
+                            "SSE: Treating remaining buffer as final message ({} chars)",
+                            json_data.len()
+                        );
+                        yield Self::parse_incomplete::<T>(json_data.to_string())
+                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+                    }
+                } else {
+                    tracing::warn!(
+                        "Gemini stream: discarding {} chars of unparseable data at end",
+                        buffer.len()
+                    );
+                }
+            }
+        };
 
         Ok(Box::pin(stream))
     }
