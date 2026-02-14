@@ -165,15 +165,75 @@ impl GeminiV1Beta {
     }
 
     /// Processes stream bytes and returns parsed response if complete message found.
+    ///
+    /// # Arguments
+    ///
+    /// * `bytes` - The raw bytes received from the stream
+    /// * `sse_buffer` - Buffer for incomplete SSE messages
+    /// * `text_accumulator` - Buffer for accumulating raw text strings across multiple responses
     fn handle_stream_bytes<T>(
         bytes: &bytes::Bytes,
-        buffer: &mut String,
+        sse_buffer: &mut String,
+        text_accumulator: &mut String,
     ) -> Option<Result<GenerateContentResponse<T>, Box<dyn Error + Send + Sync>>>
     where
         T: serde::de::DeserializeOwned + 'static,
     {
-        Self::process_bytes_chunk(bytes, buffer);
-        let json_data = Self::extract_sse_message(buffer)?;
+        Self::process_bytes_chunk(bytes, sse_buffer);
+        let json_data = Self::extract_sse_message(sse_buffer)?;
+
+        // Parse the JSON to extract the raw text string before it gets deserialized into T
+        let raw_json: serde_json::Value = match serde_json::from_str(&json_data) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("❌ Parse failed for JSON: {}\nError: {:?}", json_data, e);
+                return Some(Err(Box::new(e) as Box<dyn Error + Send + Sync>));
+            }
+        };
+
+        // Extract the raw text string from the response (before JsonString deserializes it)
+        if let Some(text_str) = raw_json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+            // Accumulate the raw text string
+            text_accumulator.push_str(text_str);
+
+            tracing::debug!(
+                "📝 Accumulated {} chars (total: {} chars): {}",
+                text_str.len(),
+                text_accumulator.len(),
+                if text_accumulator.len() > 200 {
+                    format!("{}...", &text_accumulator[..200])
+                } else {
+                    text_accumulator.clone()
+                }
+            );
+
+            // Modify the JSON to replace the text field with the accumulated text
+            let mut modified_json = raw_json;
+            modified_json["candidates"][0]["content"]["parts"][0]["text"] =
+                serde_json::Value::String(text_accumulator.clone());
+
+            // Now parse the modified JSON into the response type
+            let json_str =
+                serde_json::to_string(&modified_json).unwrap_or_else(|_| json_data.clone());
+
+            tracing::debug!(
+                "🔍 Attempting to parse modified JSON with accumulated text ({} chars)",
+                json_str.len()
+            );
+
+            let response = match Self::parse_incomplete::<T>(json_str) {
+                Ok(resp) => resp,
+                Err(e) => {
+                    tracing::debug!("⏳ Parse incomplete (waiting for more data): {:?}", e);
+                    return None; // Wait for more data
+                }
+            };
+
+            tracing::debug!("✅ Successfully parsed JSON chunk with accumulated text");
+            return Some(Ok(response));
+        }
+
+        // If we couldn't extract text, just try to parse the original JSON
         let result = Self::parse_incomplete::<T>(json_data)
             .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
         Some(result)
@@ -252,12 +312,13 @@ impl GeminiStreamingApi for GeminiV1Beta {
         let mut byte_stream = response.bytes_stream();
 
         let stream = stream! {
-            let mut buffer = String::new();
+            let mut sse_buffer = String::new();
+            let mut text_accumulator = String::new();
 
             while let Some(result) = byte_stream.next().await {
                 match result {
                     Ok(bytes) => {
-                        if let Some(result) = Self::handle_stream_bytes::<T>(&bytes, &mut buffer) {
+                        if let Some(result) = Self::handle_stream_bytes::<T>(&bytes, &mut sse_buffer, &mut text_accumulator) {
                             yield result;
                         }
                     }
@@ -268,23 +329,51 @@ impl GeminiStreamingApi for GeminiV1Beta {
                 }
             }
 
-            // Handle remaining buffer at end of stream
-            if !buffer.is_empty() {
-                let trimmed = buffer.trim();
+            // Handle remaining SSE buffer at end of stream
+            if !sse_buffer.is_empty() {
+                let trimmed = sse_buffer.trim();
                 if let Some(json_data) = trimmed.strip_prefix("data: ") {
                     let json_data = json_data.trim();
                     if !json_data.is_empty() {
-                        tracing::trace!(
-                            "SSE: Treating remaining buffer as final message ({} chars)",
+                        tracing::debug!(
+                            "🔍 Parsing final SSE buffer as message ({} chars)",
                             json_data.len()
                         );
-                        yield Self::parse_incomplete::<T>(json_data.to_string())
-                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+
+                        // Parse the JSON to extract raw text and accumulate
+                        match serde_json::from_str::<serde_json::Value>(json_data) {
+                            Ok(raw_json) => {
+                                // Extract and accumulate the raw text string
+                                if let Some(text_str) = raw_json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                                    text_accumulator.push_str(text_str);
+
+                                    // Modify the JSON to use accumulated text
+                                    let mut modified_json = raw_json;
+                                    modified_json["candidates"][0]["content"]["parts"][0]["text"] =
+                                        serde_json::Value::String(text_accumulator.clone());
+
+                                    if let Ok(json_str) = serde_json::to_string(&modified_json) {
+                                        yield Self::parse_incomplete::<T>(json_str)
+                                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+                                    } else {
+                                        yield Self::parse_incomplete::<T>(json_data.to_string())
+                                            .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+                                    }
+                                } else {
+                                    yield Self::parse_incomplete::<T>(json_data.to_string())
+                                        .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+                                }
+                            }
+                            Err(_) => {
+                                yield Self::parse_incomplete::<T>(json_data.to_string())
+                                    .map_err(|e| Box::new(e) as Box<dyn Error + Send + Sync>);
+                            }
+                        }
                     }
                 } else {
                     tracing::warn!(
                         "Gemini stream: discarding {} chars of unparseable data at end",
-                        buffer.len()
+                        sse_buffer.len()
                     );
                 }
             }

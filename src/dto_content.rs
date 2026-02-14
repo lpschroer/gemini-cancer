@@ -18,6 +18,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::dto_request::MimeType;
 
+// Import for handling incomplete/streaming JSON in JsonString deserialization
+use deser_incomplete;
+
 /// Content object containing parts with role information
 ///
 /// Generic over the text content type `T`, which defaults to `String`.
@@ -118,8 +121,32 @@ impl<'de, T: serde::de::DeserializeOwned + 'static> Deserialize<'de> for JsonStr
             return Ok(JsonString { inner });
         }
 
-        // For all other types, parse the JSON string
-        let inner = serde_json::from_str(&s).map_err(serde::de::Error::custom)?;
+        // For all other types, parse the JSON string using deser_incomplete
+        // to handle streaming/incomplete JSON gracefully
+        // tracing::debug!(
+        //     "🔍 JsonString<T>::deserialize: attempting to parse {} chars: {:?}",
+        //     s.len(),
+        //     if s.len() > 200 {
+        //         format!("{}...", &s[..200])
+        //     } else {
+        //         s.clone()
+        //     }
+        // );
+
+        let inner = deser_incomplete::from_json_str(&s).map_err(|e| {
+            tracing::error!(
+                "❌ JsonString<T>::deserialize failed: {} for input: {:?}",
+                e,
+                if s.len() > 200 {
+                    format!("{}...", &s[..200])
+                } else {
+                    s.clone()
+                }
+            );
+            serde::de::Error::custom(e)
+        })?;
+
+        tracing::debug!("✅ JsonString<T>::deserialize: successfully parsed");
         Ok(JsonString { inner })
     }
 }
