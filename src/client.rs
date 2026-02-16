@@ -7,8 +7,8 @@ use async_trait::async_trait;
 use futures::StreamExt;
 
 use crate::api::{
-    GeminiApi, GeminiStreamingApi, GenerateContentRequest, GenerateContentResponse,
-    StreamingResponseStream,
+    BoxResponseStream, GeminiApi, GeminiStreamingApi, GenerateContentRequest,
+    GenerateContentResponse,
 };
 use crate::config::GeminiConfig;
 
@@ -289,7 +289,7 @@ impl GeminiStreamingApi for GeminiV1Beta {
     async fn stream_generate_content<T>(
         &self,
         request: GenerateContentRequest<T>,
-    ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+    ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
     where
         T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
     {

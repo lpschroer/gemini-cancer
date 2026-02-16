@@ -185,7 +185,7 @@
 //!     .await?;
 //! ```
 
-use crate::api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
+use crate::api::{BoxResponseStream, GeminiApi, GeminiStreamingApi};
 use crate::dto_content::{Content, JsonString, Part};
 use crate::dto_request::{GenerateContentRequest, GenerationConfig, SafetySetting};
 use crate::dto_response::GenerateContentResponse;
@@ -735,14 +735,14 @@ where
 /// When the stream completes, it constructs a `Content::Model` from the buffered content
 /// and appends it to the conversation history.
 pub struct BufferedChatStream<'a, T> {
-    inner: StreamingResponseStream<T>,
+    inner: BoxResponseStream<T>,
     history: &'a mut Vec<Content<String>>,
     buffer: Vec<String>,
     completed: bool,
 }
 
 impl<'a, T> BufferedChatStream<'a, T> {
-    fn new(stream: StreamingResponseStream<T>, history: &'a mut Vec<Content<String>>) -> Self {
+    fn new(stream: BoxResponseStream<T>, history: &'a mut Vec<Content<String>>) -> Self {
         Self {
             inner: stream,
             history,
@@ -1197,7 +1197,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 _request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1217,7 +1217,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 _request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1254,7 +1254,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 _request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1287,7 +1287,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1370,7 +1370,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 _request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1438,7 +1438,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {
@@ -1512,7 +1512,7 @@ mod tests {
             async fn stream_generate_content<T>(
                 &self,
                 request: GenerateContentRequest<T>,
-            ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+            ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
             where
                 T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static,
             {

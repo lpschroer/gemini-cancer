@@ -134,9 +134,10 @@ pub mod config;
 pub mod dto_content;
 pub mod dto_request;
 pub mod dto_response;
+pub mod stream_ext;
 
 // Re-export commonly used types
-pub use api::{GeminiApi, GeminiStreamingApi, StreamingResponseStream};
+pub use api::{BoxResponseStream, GeminiApi, GeminiStreamingApi};
 pub use chat::{BufferedChatStream, GeminiChat, GeminiStreamChat};
 pub use client::GeminiV1Beta;
 pub use config::GeminiConfig;
@@ -149,3 +150,4 @@ pub use dto_request::{
     GenerationConfigBuilder, MimeType, ResponseMimeType, SafetyRating, SafetySetting,
 };
 pub use dto_response::{Candidate, GenerateContentResponse, PromptFeedback, UsageMetadata};
+pub use stream_ext::{BoxError, BoxStream, IntoInnerStreamExt};

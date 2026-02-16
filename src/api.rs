@@ -1,8 +1,6 @@
 use std::error::Error;
-use std::pin::Pin;
 
 use deser_incomplete::from_json_str;
-use futures::Stream;
 
 pub use super::dto_content::{
     Blob, CodeExecutionResult, Content, ExecutableCode, FileData, FunctionCall, FunctionResponse,
@@ -13,11 +11,7 @@ pub use super::dto_request::{
     SafetyRating, SafetySetting,
 };
 pub use super::dto_response::{Candidate, GenerateContentResponse, PromptFeedback, UsageMetadata};
-
-/// Type alias for streaming response stream
-pub type StreamingResponseStream<T = String> = Pin<
-    Box<dyn Stream<Item = Result<GenerateContentResponse<T>, Box<dyn Error + Send + Sync>>> + Send>,
->;
+pub use super::stream_ext::BoxResponseStream;
 
 /// Trait for Gemini content generation API
 #[async_trait::async_trait]
@@ -49,7 +43,7 @@ pub trait GeminiStreamingApi {
     async fn stream_generate_content<T>(
         &self,
         request: GenerateContentRequest<T>,
-    ) -> Result<StreamingResponseStream<T>, Box<dyn Error>>
+    ) -> Result<BoxResponseStream<T>, Box<dyn Error>>
     where
         T: serde::de::DeserializeOwned + serde::Serialize + Send + 'static;
 
